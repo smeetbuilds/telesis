@@ -66,6 +66,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -87,6 +88,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smeet.telesis.data.CategoryEntity
 import com.smeet.telesis.data.ExpenseWithCategory
@@ -102,8 +105,8 @@ import com.smeet.telesis.ui.MainViewModel
 import com.smeet.telesis.ui.MiniBarChart
 import com.smeet.telesis.ui.PremiumCard
 import com.smeet.telesis.ui.SectionTitle
-import com.smeet.telesis.ui.TelesisTheme
 import com.smeet.telesis.ui.StatPill
+import com.smeet.telesis.ui.TelesisTheme
 import com.smeet.telesis.ui.VaultColors
 import com.smeet.telesis.util.DateUtils
 import com.smeet.telesis.util.Money
@@ -135,6 +138,21 @@ private fun TelesisAppRoot(vm: MainViewModel = viewModel()) {
     val app = context.applicationContext as TelesisApp
     var unlocked by remember { mutableStateOf(!app.appLockManager.isPinEnabled()) }
     var biometricMessage by remember { mutableStateOf("") }
+
+    DisposableEffect(activity) {
+        val lifecycle = activity?.lifecycle
+        if (lifecycle == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP && app.appLockManager.isPinEnabled()) {
+                    unlocked = false
+                }
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = VaultColors.Ink) {
         if (!unlocked) {
@@ -211,7 +229,7 @@ private fun LockScreen(
             if (message.isNotBlank()) Text(message, color = VaultColors.Muted, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = { if (!onUnlock(pin)) error = "Incorrect PIN" },
+                onClick = { if (!onUnlock(pin)) error = "Incorrect PIN or temporarily locked" },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = VaultColors.Gold, contentColor = Color.Black)
             ) { Text("Unlock") }
@@ -377,6 +395,7 @@ private fun TransactionsScreen(vm: MainViewModel) {
     val categories by vm.categories.collectAsState()
     var query by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<ExpenseWithCategory?>(null) }
+    var pendingDelete by remember { mutableStateOf<ExpenseWithCategory?>(null) }
     val filtered = remember(items, query) {
         if (query.isBlank()) items else items.filter {
             it.merchant.contains(query, true) || it.categoryName.contains(query, true) || it.paymentMode.name.contains(query, true)
@@ -403,7 +422,7 @@ private fun TransactionsScreen(vm: MainViewModel) {
                         trailing = {
                             Row {
                                 IconButton(onClick = { editing = expense }) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-                                IconButton(onClick = { vm.deleteExpense(expense.id) }) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
+                                IconButton(onClick = { pendingDelete = expense }) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
                             }
                         }
                     )
@@ -423,6 +442,18 @@ private fun TransactionsScreen(vm: MainViewModel) {
             }
         )
     }
+    pendingDelete?.let { expense ->
+        ConfirmDeleteDialog(
+            title = "Delete transaction?",
+            body = "This will permanently remove ${expense.merchant} from your local ledger.",
+            confirmText = "Delete",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                vm.deleteExpense(expense.id)
+                pendingDelete = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -437,6 +468,7 @@ private fun SmsImportScreen(vm: MainViewModel, snackbar: SnackbarHostState) {
         )
     }
     var isImporting by remember { mutableStateOf(false) }
+    var pendingIgnore by remember { mutableStateOf<ExpenseWithCategory?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         hasPermission = results[Manifest.permission.READ_SMS] == true && results[Manifest.permission.RECEIVE_SMS] == true
     }
@@ -485,13 +517,25 @@ private fun SmsImportScreen(vm: MainViewModel, snackbar: SnackbarHostState) {
                 PremiumCard {
                     ExpenseRow(item)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { vm.deleteExpense(item.id) }) { Text("Ignore") }
+                        OutlinedButton(onClick = { pendingIgnore = item }) { Text("Ignore") }
                         Spacer(Modifier.width(8.dp))
                         Button(onClick = { vm.approveExpense(item.id) }) { Icon(Icons.Default.Check, contentDescription = null); Spacer(Modifier.width(4.dp)); Text("Approve") }
                     }
                 }
             }
         }
+    }
+    pendingIgnore?.let { item ->
+        ConfirmDeleteDialog(
+            title = "Ignore SMS import?",
+            body = "This removes ${item.merchant} from the review queue and local ledger.",
+            confirmText = "Ignore",
+            onDismiss = { pendingIgnore = null },
+            onConfirm = {
+                vm.deleteExpense(item.id)
+                pendingIgnore = null
+            }
+        )
     }
 }
 
@@ -778,11 +822,33 @@ private fun CategorySelector(label: String, selected: String, options: List<Stri
     Column {
         Text(label, color = VaultColors.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.take(16).forEach { name ->
+            options.forEach { name ->
                 FilterChip(selected = selected == name, onClick = { onSelect(name) }, label = { Text(name) })
             }
         }
     }
+}
+
+@Composable
+private fun ConfirmDeleteDialog(
+    title: String,
+    body: String,
+    confirmText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body, color = VaultColors.Muted) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) { Text(confirmText) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
