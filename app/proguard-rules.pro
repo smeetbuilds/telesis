@@ -1,0 +1,3 @@
+-keep class com.smeet.telesis.data.** { *; }
+-keep class androidx.room.** { *; }
+-dontwarn javax.annotation.**

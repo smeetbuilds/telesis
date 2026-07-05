@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+  <rect width="390" height="844" rx="36" fill="#090A0D"/>
+  <text x="28" y="64" fill="#F8FAFC" font-family="Arial" font-size="28" font-weight="700">Settings</text>
+  <text x="28" y="96" fill="#94A3B8" font-family="Arial" font-size="14">Privacy and backup controls</text>
+  <g fill="#111827">
+    <rect x="24" y="132" width="342" height="82" rx="22"/>
+    <rect x="24" y="234" width="342" height="82" rx="22"/>
+    <rect x="24" y="336" width="342" height="82" rx="22"/>
+    <rect x="24" y="438" width="342" height="82" rx="22"/>
+  </g>
+  <g font-family="Arial" font-size="17" font-weight="700" fill="#F8FAFC">
+    <text x="48" y="170">PIN + biometric lock</text>
+    <text x="48" y="272">JSON backup</text>
+    <text x="48" y="374">CSV export</text>
+    <text x="48" y="476">SMS import rules</text>
+  </g>
+  <g font-family="Arial" font-size="13" fill="#94A3B8">
+    <text x="48" y="194">Protect the app locally</text>
+    <text x="48" y="296">Export and restore your own data</text>
+    <text x="48" y="398">Open in spreadsheet apps safely</text>
+    <text x="48" y="500">Tune merchant and category detection</text>
+  </g>
+  <rect x="24" y="596" width="342" height="92" rx="26" fill="#0F172A"/>
+  <text x="48" y="636" fill="#34D399" font-family="Arial" font-size="18" font-weight="700">No INTERNET permission</text>
+  <text x="48" y="664" fill="#94A3B8" font-family="Arial" font-size="13">Telesis keeps expense data on device.</text>
+</svg>
