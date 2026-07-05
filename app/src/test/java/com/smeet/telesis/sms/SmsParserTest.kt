@@ -19,6 +19,7 @@ class SmsParserTest {
         assertEquals(TransactionType.EXPENSE, parsed.type)
         assertEquals(PaymentMode.UPI, parsed.paymentMode)
         assertEquals("Zomato", parsed.merchant)
+        assertEquals("Food", parsed.suggestedCategory)
     }
 
     @Test
@@ -42,40 +43,77 @@ class SmsParserTest {
         val parsed = SmsParser.parse("ICICIB", "INR 2500 credited to your account XX1111 via NEFT", 1L) as ParsedSms.Transaction
         assertEquals(250_000L, parsed.amountPaise)
         assertEquals(TransactionType.INCOME, parsed.type)
+        assertEquals("Income", parsed.suggestedCategory)
     }
 
     @Test
-    fun creditCardPaymentReceivedIsTransferNotIncome() {
+    fun parsesSalaryCreditAsSalaryIncome() {
+        val parsed = SmsParser.parse("BANK", "Salary INR 50000 credited to your account XX1111", 1L) as ParsedSms.Transaction
+        assertEquals(5_000_000L, parsed.amountPaise)
+        assertEquals(TransactionType.INCOME, parsed.type)
+        assertEquals("Salary", parsed.suggestedCategory)
+    }
+
+    @Test
+    fun ignoresCreditCardPaymentReceived() {
         val parsed = SmsParser.parse(
             sender = "HDFCBK",
             body = "Payment received for your HDFC Bank Credit Card ending 1234 for Rs. 12,345.67. Thank you for your payment.",
             smsDate = 1L
-        ) as ParsedSms.Transaction
+        )
 
-        assertEquals(1_234_567L, parsed.amountPaise)
-        assertEquals(TransactionType.TRANSFER, parsed.type)
-        assertEquals("Credit Card Payment", parsed.merchant)
-        assertEquals("Transfers", parsed.suggestedCategory)
+        assertTrue(parsed is ParsedSms.Ignored)
     }
 
     @Test
-    fun creditCardCreditedPaymentIsTransferNotIncome() {
+    fun ignoresCreditCardCreditedPayment() {
         val parsed = SmsParser.parse(
             sender = "ICICIB",
             body = "INR 8750.00 credited to your credit card account XX9001 towards card payment. Available limit updated.",
             smsDate = 1L
-        ) as ParsedSms.Transaction
+        )
 
-        assertEquals(875_000L, parsed.amountPaise)
-        assertEquals(TransactionType.TRANSFER, parsed.type)
-        assertEquals("Credit Card Payment", parsed.merchant)
+        assertTrue(parsed is ParsedSms.Ignored)
     }
 
     @Test
-    fun creditCardDueReminderIsIgnored() {
+    fun ignoresCreditCardDueReminder() {
         val parsed = SmsParser.parse(
             sender = "SBICRD",
             body = "Your SBI Credit Card statement is generated. Total amount due Rs. 24500.00, minimum due Rs. 1500.00, due on 20-Jul.",
+            smsDate = 1L
+        )
+
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
+
+    @Test
+    fun ignoresMobileRechargePayment() {
+        val parsed = SmsParser.parse(
+            sender = "JIOINF",
+            body = "Your mobile recharge of Rs.299 is successful. Plan validity is 28 days.",
+            smsDate = 1L
+        )
+
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
+
+    @Test
+    fun ignoresUtilityBillPayment() {
+        val parsed = SmsParser.parse(
+            sender = "TXNPWR",
+            body = "Electricity bill payment of Rs.1250.00 paid successfully via UPI. BBPS reference 12345.",
+            smsDate = 1L
+        )
+
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
+
+    @Test
+    fun ignoresOwnAccountTransfer() {
+        val parsed = SmsParser.parse(
+            sender = "BANK",
+            body = "Rs. 10000 transferred to your own account XX2222 from account XX1111.",
             smsDate = 1L
         )
 
