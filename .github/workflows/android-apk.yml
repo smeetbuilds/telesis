@@ -93,13 +93,13 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Run Android lint
-        run: ./gradlew :app:lintDebug
+        run: ./gradlew :app:lintDebug --stacktrace
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Rename APK
         run: |
