@@ -27,10 +27,10 @@ The latest debug APK is published by GitHub Actions after a successful `main` bu
 
 Release assets:
 
-- `telesis-debug.apk` — installable Android APK
+- `telesis-debug.apk` — installable Android debug APK for sideload testing
 - `telesis-debug.apk.sha256` — checksum for verification
 
-> This is a personal sideload build. It is not a Play Store release.
+> The `latest` release is a personal sideload/debug build. It is not a Play Store release and is not production-signed.
 
 ---
 
@@ -75,7 +75,7 @@ The goal is simple: **personal finance tracking without surrendering personal fi
 - Local Room database
 - JSON backup and restore
 - CSV export with spreadsheet formula-injection protection
-- Optional PIN / biometric lock
+- Optional encrypted PIN / biometric lock
 
 ---
 
@@ -106,6 +106,7 @@ Because SMS permissions are sensitive, this project is intended for personal sid
 - Material 3
 - Room
 - DataStore Preferences
+- AndroidX Security Crypto
 - Coroutines / Flow
 - GitHub Actions for APK builds
 
@@ -128,10 +129,9 @@ Requirements:
 Commands:
 
 ```bash
-chmod +x ./gradlew
-./gradlew :app:testDebugUnitTest
-./gradlew :app:lintDebug
-./gradlew :app:assembleDebug
+gradle :app:testDebugUnitTest
+gradle :app:lintDebug
+gradle :app:assembleDebug
 ```
 
 Generated APK:
@@ -142,16 +142,40 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
+## Signed release builds
+
+A signed release workflow exists at `.github/workflows/android-signed-release.yml`. It runs on version tags such as `v1.0.1` and can also be started manually.
+
+It only builds a signed release APK when these repository secrets are configured:
+
+```text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+Expected release output when secrets are present:
+
+```text
+telesis-release.apk
+telesis-release.apk.sha256
+```
+
+If secrets are missing, the workflow exits safely without producing a fake signed release.
+
+---
+
 ## GitHub Actions
 
-The workflow at `.github/workflows/android-apk.yml` runs on `main`, pull requests, tags, and manual dispatch.
+The debug APK workflow at `.github/workflows/android-apk.yml` runs on `main`, pull requests, tags, and manual dispatch.
 
 It performs:
 
 ```bash
-./gradlew :app:testDebugUnitTest --stacktrace
-./gradlew :app:lintDebug --stacktrace
-./gradlew :app:assembleDebug --stacktrace
+gradle :app:testDebugUnitTest --stacktrace
+gradle :app:lintDebug --stacktrace
+gradle :app:assembleDebug --stacktrace
 ```
 
 After a successful `main` build, it publishes a refreshed `latest` GitHub Release containing the debug APK.
@@ -162,10 +186,11 @@ After a successful `main` build, it publishes a refreshed `latest` GitHub Releas
 
 ```text
 app/src/main/java/com/smeet/telesis/
+├── core/       # App lock and local security helpers
 ├── data/       # Room entities, DAO, database, repository
 ├── sms/        # SMS parser, category engine, receiver
-├── ui/         # Compose UI components and theme
-├── util/       # Money, date, security helpers
+├── ui/         # Compose UI components, ViewModel, and theme
+├── util/       # Money and date helpers
 ├── MainActivity.kt
 └── TelesisApp.kt
 ```
