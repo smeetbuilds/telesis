@@ -19,13 +19,14 @@ import com.smeet.telesis.data.RecurringExpenseEntity
 import com.smeet.telesis.data.RecurringInterval
 import com.smeet.telesis.data.RuleEntity
 import com.smeet.telesis.data.SubscriptionEntity
-import com.smeet.telesis.data.TransactionType
 import com.smeet.telesis.sms.SmsReader
 import com.smeet.telesis.util.DateUtils
 import com.smeet.telesis.util.Money
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -41,6 +42,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as TelesisApp
     private val repo = app.repository
     private val smsReader = SmsReader(application.contentResolver)
+
+    private val _appStatus = MutableStateFlow<AppStatus>(AppStatus.Loading)
+    val appStatus: StateFlow<AppStatus> = _appStatus.asStateFlow()
 
     private val dashboardPrimary = combine(
         repo.observeMonthlyTotal(),
@@ -88,7 +92,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
-        viewModelScope.launch { repo.runStartupMaintenance() }
+        refreshStartupMaintenance()
+    }
+
+    fun refreshStartupMaintenance() {
+        viewModelScope.launch {
+            _appStatus.value = AppStatus.Loading
+            runCatching { withContext(Dispatchers.IO) { repo.runStartupMaintenance() } }
+                .onSuccess { _appStatus.value = AppStatus.Ready }
+                .onFailure { _appStatus.value = AppStatus.Error(it.cleanMessage("App maintenance failed")) }
+        }
     }
 
     fun addExpense(amount: String, merchant: String, category: String, mode: PaymentMode, note: String, dateMillis: Long?, onDone: (Boolean, String) -> Unit) {
@@ -102,8 +115,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone(false, "Enter a valid date as YYYY-MM-DD")
                 return@launch
             }
-            repo.addManualExpense(paise, merchant, category, mode, note, dateTime = dateMillis)
-            onDone(true, "Expense added")
+            runCatching { withContext(Dispatchers.IO) { repo.addManualExpense(paise, merchant, category, mode, note, dateTime = dateMillis) } }
+                .onSuccess { onDone(true, "Expense added") }
+                .onFailure { onDone(false, it.cleanMessage("Could not add expense")) }
         }
     }
 
@@ -118,30 +132,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone(false, "Enter a valid date as YYYY-MM-DD")
                 return@launch
             }
-            val ok = repo.updateManualExpense(id, paise, merchant, category, mode, note, dateMillis)
-            onDone(ok, if (ok) "Expense updated" else "Expense not found")
+            runCatching { withContext(Dispatchers.IO) { repo.updateManualExpense(id, paise, merchant, category, mode, note, dateMillis) } }
+                .onSuccess { ok -> onDone(ok, if (ok) "Expense updated" else "Expense not found") }
+                .onFailure { onDone(false, it.cleanMessage("Could not update expense")) }
         }
     }
 
-    fun importSms(limit: Int = 3000, onDone: (ImportReport) -> Unit, onError: (String) -> Unit) {
+    fun importSms(limit: Int = DEFAULT_SMS_SCAN_LIMIT, onDone: (ImportReport) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val messages = smsReader.readInbox(limit)
-                val report = repo.importSmsBatch(messages)
+                val safeLimit = limit.coerceIn(MIN_SMS_SCAN_LIMIT, MAX_SMS_SCAN_LIMIT)
+                val messages = smsReader.readInbox(safeLimit)
+                val report = withContext(Dispatchers.IO) { repo.importSmsBatch(messages) }
                 lastImportReport = report
                 onDone(report)
             } catch (t: Throwable) {
-                onError(t.message ?: "SMS import failed")
+                onError(t.cleanMessage("SMS import failed"))
             }
         }
     }
 
     fun approveExpense(id: Long) {
-        viewModelScope.launch { repo.approveExpense(id) }
+        viewModelScope.launch { runCatching { withContext(Dispatchers.IO) { repo.approveExpense(id) } } }
     }
 
     fun deleteExpense(id: Long) {
-        viewModelScope.launch { repo.deleteExpense(id) }
+        viewModelScope.launch { runCatching { withContext(Dispatchers.IO) { repo.deleteExpense(id) } } }
     }
 
     fun setBudget(category: CategoryEntity, amount: String, onDone: (Boolean, String) -> Unit) {
@@ -151,8 +167,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone(false, "Enter a valid budget")
                 return@launch
             }
-            repo.updateCategoryBudget(category, paise)
-            onDone(true, "Budget updated")
+            runCatching { withContext(Dispatchers.IO) { repo.updateCategoryBudget(category, paise) } }
+                .onSuccess { onDone(true, "Budget updated") }
+                .onFailure { onDone(false, it.cleanMessage("Could not update budget")) }
         }
     }
 
@@ -162,13 +179,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone(false, "Rule text is too short")
                 return@launch
             }
-            repo.addRule(matchText, category, merchantName)
-            onDone(true, "Rule saved")
+            runCatching { withContext(Dispatchers.IO) { repo.addRule(matchText, category, merchantName) } }
+                .onSuccess { onDone(true, "Rule saved") }
+                .onFailure { onDone(false, it.cleanMessage("Could not save rule")) }
         }
     }
 
     fun deleteRule(id: Long) {
-        viewModelScope.launch { repo.deleteRule(id) }
+        viewModelScope.launch { runCatching { withContext(Dispatchers.IO) { repo.deleteRule(id) } } }
     }
 
     fun addRecurring(amount: String, merchant: String, category: String, mode: PaymentMode, interval: RecurringInterval, note: String, onDone: (Boolean, String) -> Unit) {
@@ -178,26 +196,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone(false, "Enter a valid recurring amount")
                 return@launch
             }
-            repo.addRecurringExpense(paise, merchant, category, mode, interval, nextDate(interval), note)
-            onDone(true, "Recurring expense saved")
+            runCatching { withContext(Dispatchers.IO) { repo.addRecurringExpense(paise, merchant, category, mode, interval, nextDate(interval), note) } }
+                .onSuccess { onDone(true, "Recurring expense saved") }
+                .onFailure { onDone(false, it.cleanMessage("Could not save recurring expense")) }
         }
     }
 
     fun deleteRecurring(id: Long) {
-        viewModelScope.launch { repo.deleteRecurringExpense(id) }
+        viewModelScope.launch { runCatching { withContext(Dispatchers.IO) { repo.deleteRecurringExpense(id) } } }
     }
 
     fun generateDueRecurring(onDone: (String) -> Unit) {
         viewModelScope.launch {
-            val count = repo.materializeDueRecurringExpenses()
-            onDone(if (count == 1) "1 due recurring expense added" else "$count due recurring expenses added")
+            runCatching { withContext(Dispatchers.IO) { repo.materializeDueRecurringExpenses() } }
+                .onSuccess { count -> onDone(if (count == 1) "1 due recurring expense added" else "$count due recurring expenses added") }
+                .onFailure { onDone(it.cleanMessage("Could not generate due recurring expenses")) }
         }
     }
 
     fun detectSubscriptions(onDone: (String) -> Unit) {
         viewModelScope.launch {
-            val count = repo.detectSubscriptions(force = true)
-            onDone(if (count == 1) "1 subscription candidate detected" else "$count subscription candidates detected")
+            runCatching { withContext(Dispatchers.IO) { repo.detectSubscriptions(force = true) } }
+                .onSuccess { count -> onDone(if (count == 1) "1 subscription candidate detected" else "$count subscription candidates detected") }
+                .onFailure { onDone(it.cleanMessage("Could not detect subscriptions")) }
         }
     }
 
@@ -238,7 +259,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 onDone(true, "JSON backup exported")
             } catch (t: Throwable) {
-                onDone(false, t.message ?: "Export failed")
+                onDone(false, t.cleanMessage("Export failed"))
             }
         }
     }
@@ -254,7 +275,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 onDone(true, "CSV exported")
             } catch (t: Throwable) {
-                onDone(false, t.message ?: "CSV export failed")
+                onDone(false, t.cleanMessage("CSV export failed"))
             }
         }
     }
@@ -273,14 +294,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val report: ImportBackupReport = withContext(Dispatchers.IO) { repo.importBackup(json) }
                 onDone(true, "Restored ${report.expenses} expenses, ${report.categories} categories, ${report.rules} rules, ${report.recurring} recurring items")
             } catch (t: Throwable) {
-                onDone(false, t.message ?: "Backup restore failed")
+                onDone(false, t.cleanMessage("Backup restore failed"))
             }
         }
     }
 
+    private fun Throwable.cleanMessage(fallback: String): String = message?.takeIf { it.isNotBlank() }?.take(180) ?: fallback
+
     companion object {
         private const val MAX_BACKUP_BYTES = 10 * 1024 * 1024
+        private const val MIN_SMS_SCAN_LIMIT = 100
+        private const val DEFAULT_SMS_SCAN_LIMIT = 3000
+        private const val MAX_SMS_SCAN_LIMIT = 5000
     }
+}
+
+sealed class AppStatus {
+    data object Loading : AppStatus()
+    data object Ready : AppStatus()
+    data class Error(val message: String) : AppStatus()
 }
 
 private data class DashboardPrimary(
