@@ -4,11 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import android.util.Log
 import com.smeet.telesis.TelesisApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 class TransactionSmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,10 +26,19 @@ class TransactionSmsReceiver : BroadcastReceiver() {
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                app.repository.importSingleSms(sender = sender, body = body, date = timestamp)
+                withTimeout(SMS_RECEIVER_TIMEOUT_MS) {
+                    app.repository.importSingleSms(sender = sender, body = body, date = timestamp)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Incoming SMS import failed", t)
             } finally {
                 pending.finish()
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "TelesisSmsReceiver"
+        private const val SMS_RECEIVER_TIMEOUT_MS = 9_000L
     }
 }
