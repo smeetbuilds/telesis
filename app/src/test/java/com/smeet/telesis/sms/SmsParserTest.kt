@@ -33,4 +33,42 @@ class SmsParserTest {
         assertEquals(250_000L, parsed.amountPaise)
         assertEquals(TransactionType.INCOME, parsed.type)
     }
+
+    @Test
+    fun creditCardPaymentReceivedIsTransferNotIncome() {
+        val parsed = SmsParser.parse(
+            sender = "HDFCBK",
+            body = "Payment received for your HDFC Bank Credit Card ending 1234 for Rs. 12,345.67. Thank you for your payment.",
+            smsDate = 1L
+        ) as ParsedSms.Transaction
+
+        assertEquals(1_234_567L, parsed.amountPaise)
+        assertEquals(TransactionType.TRANSFER, parsed.type)
+        assertEquals("Credit Card Payment", parsed.merchant)
+        assertEquals("Transfers", parsed.suggestedCategory)
+    }
+
+    @Test
+    fun creditCardCreditedPaymentIsTransferNotIncome() {
+        val parsed = SmsParser.parse(
+            sender = "ICICIB",
+            body = "INR 8750.00 credited to your credit card account XX9001 towards card payment. Available limit updated.",
+            smsDate = 1L
+        ) as ParsedSms.Transaction
+
+        assertEquals(875_000L, parsed.amountPaise)
+        assertEquals(TransactionType.TRANSFER, parsed.type)
+        assertEquals("Credit Card Payment", parsed.merchant)
+    }
+
+    @Test
+    fun creditCardDueReminderIsIgnored() {
+        val parsed = SmsParser.parse(
+            sender = "SBICRD",
+            body = "Your SBI Credit Card statement is generated. Total amount due Rs. 24500.00, minimum due Rs. 1500.00, due on 20-Jul.",
+            smsDate = 1L
+        )
+
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
 }
