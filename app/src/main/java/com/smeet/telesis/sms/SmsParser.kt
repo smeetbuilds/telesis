@@ -16,6 +16,10 @@ object SmsParser {
     )
     private val creditWords = listOf("credited", "credit", "received", "deposited", "refund", "cashback", "reversal")
     private val transferWords = listOf("self transfer", "transferred to your", "sent to self")
+    private val failedTransactionWords = listOf(
+        "failed", "declined", "unsuccessful", "not processed", "could not be processed", "reversed due to failure",
+        "transaction failed", "payment failed", "txn failed", "request failed"
+    )
     private val creditCardContextWords = listOf(
         "credit card", "cc", "card ending", "card no", "card number", "card account", "card payment",
         "card bill", "bill payment", "outstanding", "statement balance", "total amount due"
@@ -28,7 +32,7 @@ object SmsParser {
     private val ignoreWords = listOf(
         "otp", "one time password", "password", "verification", "login", "offer", "discount",
         "sale", "statement", "bill due", "due on", "minimum due", "available balance", "balance is",
-        "pre-approved", "loan", "insurance", "kyc", "mandate request", "failed"
+        "pre-approved", "loan", "insurance", "kyc", "mandate request"
     )
 
     private val accountRegexes = listOf(
@@ -40,6 +44,9 @@ object SmsParser {
         val normalized = body.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
         val lower = normalized.lowercase()
 
+        if (failedTransactionWords.any { lower.contains(it) }) {
+            return ParsedSms.Ignored("Ignored failed or declined transaction SMS")
+        }
         if (isCreditCardDueReminder(lower)) {
             return ParsedSms.Ignored("Ignored credit-card bill due reminder")
         }
@@ -169,7 +176,6 @@ object SmsParser {
         if (merchant != "Unknown Merchant" && merchant.length >= 3) score += 10
         if (isCreditCardPayment) score += 10
         if (type == TransactionType.TRANSFER) score -= 15
-        if (lower.contains("failed") || lower.contains("declined")) score -= 40
         return score.coerceIn(0, 100)
     }
 
