@@ -13,7 +13,8 @@ data class DeviceSms(
 )
 
 class SmsReader(private val contentResolver: ContentResolver) {
-    suspend fun readInbox(limit: Int = 2000): List<DeviceSms> = withContext(Dispatchers.IO) {
+    suspend fun readInbox(limit: Int = DEFAULT_LIMIT, sinceMillis: Long? = null): List<DeviceSms> = withContext(Dispatchers.IO) {
+        val safeLimit = limit.coerceIn(MIN_LIMIT, MAX_LIMIT)
         val sms = mutableListOf<DeviceSms>()
         val projection = arrayOf(
             Telephony.Sms._ID,
@@ -21,26 +22,39 @@ class SmsReader(private val contentResolver: ContentResolver) {
             Telephony.Sms.BODY,
             Telephony.Sms.DATE
         )
+        val selection = sinceMillis?.let { "${Telephony.Sms.DATE} >= ?" }
+        val selectionArgs = sinceMillis?.let { arrayOf(it.toString()) }
         contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,
             projection,
-            null,
-            null,
+            selection,
+            selectionArgs,
             Telephony.Sms.DEFAULT_SORT_ORDER
         )?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(Telephony.Sms._ID)
             val senderIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
-            while (cursor.moveToNext() && sms.size < limit) {
-                sms += DeviceSms(
-                    id = cursor.getLong(idIndex),
-                    sender = cursor.getString(senderIndex).orEmpty(),
-                    body = cursor.getString(bodyIndex).orEmpty(),
-                    date = cursor.getLong(dateIndex)
-                )
+            while (cursor.moveToNext() && sms.size < safeLimit) {
+                runCatching {
+                    DeviceSms(
+                        id = cursor.getLong(idIndex),
+                        sender = cursor.getString(senderIndex).orEmpty().take(80),
+                        body = cursor.getString(bodyIndex).orEmpty().take(MAX_BODY_CHARS),
+                        date = cursor.getLong(dateIndex)
+                    )
+                }.getOrNull()?.let { row ->
+                    if (row.body.isNotBlank()) sms += row
+                }
             }
         }
         sms
+    }
+
+    companion object {
+        private const val MIN_LIMIT = 100
+        private const val DEFAULT_LIMIT = 2000
+        private const val MAX_LIMIT = 5000
+        private const val MAX_BODY_CHARS = 1_200
     }
 }
