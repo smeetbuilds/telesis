@@ -28,6 +28,16 @@ class SmsParserTest {
     }
 
     @Test
+    fun ignoresFailedDebitMessages() {
+        val parsed = SmsParser.parse(
+            sender = "HDFCBK",
+            body = "Your UPI transaction of Rs. 750.00 failed and was not processed. Please try again later.",
+            smsDate = 1L
+        )
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
+
+    @Test
     fun parsesCreditAsIncome() {
         val parsed = SmsParser.parse("ICICIB", "INR 2500 credited to your account XX1111 via NEFT", 1L) as ParsedSms.Transaction
         assertEquals(250_000L, parsed.amountPaise)
