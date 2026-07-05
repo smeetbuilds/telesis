@@ -1,0 +1,73 @@
+name: Publish APK Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build and publish latest APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle 8.11.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -o "$RUNNER_TEMP/gradle-8.11.1-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.11.1-bin.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.11.1/bin" >> "$GITHUB_PATH"
+
+      - name: Build debug APK only
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Prepare APK asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/apk
+          cp app/build/outputs/apk/debug/app-debug.apk build/apk/telesis-debug.apk
+          sha256sum build/apk/telesis-debug.apk > build/apk/telesis-debug.apk.sha256
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telesis-debug-apk
+          path: |
+            build/apk/telesis-debug.apk
+            build/apk/telesis-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete latest --yes || true
+          git push origin :refs/tags/latest || true
+          git tag -f latest "${GITHUB_SHA}"
+          git push -f origin latest
+          gh release create latest \
+            build/apk/telesis-debug.apk \
+            build/apk/telesis-debug.apk.sha256 \
+            --title "Telesis Latest APK" \
+            --notes "Latest debug APK built from main commit ${GITHUB_SHA}." \
+            --target "${GITHUB_SHA}" \
+            --prerelease
