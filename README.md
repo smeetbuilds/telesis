@@ -1,8 +1,8 @@
 # Telesis
 
-> **A private, local-first Android expense tracker that reads transaction SMS on-device and turns them into a clean personal finance dashboard.**
+> **A local-first Android expense tracker that turns transaction SMS into a clean personal finance dashboard.**
 
-Telesis is an open-source Android app for people who want a personal expense tracker without cloud lock-in, ads, analytics, accounts, or server-side data collection. It is built natively with **Kotlin**, **Jetpack Compose**, and **Room**.
+Telesis is an open-source Android app for personal expense tracking. It is built natively with **Kotlin**, **Jetpack Compose**, and **Room**, with a strict privacy-first direction: no account, no cloud sync, no ads, no analytics SDK, and no internet permission.
 
 <p align="center">
   <img src="docs/screenshots/dashboard.svg" alt="Telesis dashboard preview" width="30%" />
@@ -11,134 +11,109 @@ Telesis is an open-source Android app for people who want a personal expense tra
 </p>
 
 <p align="center">
-  <a href="https://github.com/SMITGHORI/telesis/actions/workflows/android-apk.yml"><img src="https://github.com/SMITGHORI/telesis/actions/workflows/android-apk.yml/badge.svg" alt="Android APK build" /></a>
-  <a href="https://github.com/SMITGHORI/telesis/releases"><img src="https://img.shields.io/badge/APK-download%20from%20releases-16a34a" alt="Download APK from GitHub Releases" /></a>
+  <a href="https://github.com/smeetbuilds/telesis/actions/workflows/android-apk.yml"><img src="https://github.com/smeetbuilds/telesis/actions/workflows/android-apk.yml/badge.svg" alt="Android APK build" /></a>
+  <a href="https://github.com/smeetbuilds/telesis/releases/tag/latest"><img src="https://img.shields.io/badge/APK-download%20latest-16a34a" alt="Download latest APK" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3ddc84" alt="Android" />
   <img src="https://img.shields.io/badge/privacy-local--only-111827" alt="Local only" />
 </p>
 
 ---
 
+## Download APK
+
+The latest debug APK is published by GitHub Actions after a successful `main` build:
+
+**Download:** https://github.com/smeetbuilds/telesis/releases/tag/latest
+
+Release assets:
+
+- `telesis-debug.apk` — installable Android APK
+- `telesis-debug.apk.sha256` — checksum for verification
+
+> This is a personal sideload build. It is not a Play Store release.
+
+---
+
 ## Why Telesis exists
 
-Most finance apps ask for accounts, cloud sync, ads, analytics, bank connectors, or external servers. Telesis takes the opposite route:
+Most expense trackers either need manual entry forever or send your financial data to a remote service. Telesis takes a different route: it reads transaction SMS locally, parses debit/credit messages on your phone, and stores the result in a private local database.
 
-- your expenses stay on your phone;
-- SMS parsing happens locally;
-- there is **no internet permission**;
-- there is no Firebase, backend, account system, or analytics SDK;
-- exports are user-triggered JSON/CSV files only.
-
-This project is intended for **personal sideloaded use** because Android SMS permissions are sensitive and restricted for public app-store distribution.
+The goal is simple: **personal finance tracking without surrendering personal finance data.**
 
 ---
 
-## Current app identity
+## Features
 
-| Field | Value |
-|---|---|
-| App name | **Telesis** |
-| Android application ID / bundle identifier | `com.smeet.telesis` |
-| Kotlin namespace | `com.smeet.telesis` |
-| Version name | `1.0.0` |
-| Version code | `100` |
-| Minimum Android version | Android 8.0 / API 26 |
-| Target SDK | 35 |
+### Expense tracking
 
-The Android `applicationId` is the identifier installed on the phone. For this repo, the installed app ID and Kotlin namespace are both `com.smeet.telesis`.
+- Add, edit, and delete expenses manually
+- Track income, expenses, and transfers
+- Set categories and budgets
+- View monthly totals, daily spend, top merchants, and payment-mode breakdowns
 
----
+### SMS transaction import
 
-## Core features
+- Reads bank, card, wallet, UPI, and ATM transaction SMS locally
+- Detects debit, credit, transfer, and cash withdrawal messages
+- Extracts amount, merchant, account hint, and payment mode
+- Avoids common duplicate imports using transaction hashes
+- Review queue for uncertain SMS matches
 
-### Expense capture
+### Automation
 
-- Manual expense add, edit, date entry, and delete
-- SMS inbox import using `READ_SMS`
-- Incoming transaction SMS receiver using `RECEIVE_SMS`
-- Debit, credit, transfer, ATM, bank, UPI, card, and wallet detection
-- Smart amount extraction that avoids common balance/limit amounts
-- Merchant extraction and cleanup
-- Duplicate SMS prevention using hashes
-- Review queue for uncertain imports
-
-### Smart organization
-
-- Auto-created default categories
-- Auto-categorization during SMS import
-- Custom local SMS rules
-- Category budgets
-- Recurring expenses
-- Due recurring expense generation
+- Custom local parsing rules
+- Auto-categorization
+- Recurring expense generation
 - Subscription candidate detection
-
-### Insights
-
-- Monthly spending total
-- Today spend card
-- Remaining budget card
-- Category spend breakdown
-- Daily spend bars
-- Payment-mode split
-- Top merchant insights
-- Recent transactions
 
 ### Privacy and backup
 
-- No `INTERNET` permission
-- No cloud backend
-- No Firebase
+- No internet permission
+- No account system
+- No backend
 - No analytics SDK
-- No login
-- PIN lock
-- Biometric/device-credential unlock
-- Local JSON backup export
-- Local JSON restore/import
+- Local Room database
+- JSON backup and restore
 - CSV export with spreadsheet formula-injection protection
+- Optional PIN / biometric lock
 
 ---
 
-## App flow
+## Permissions
 
-```mermaid
-flowchart TD
-    A[Install Telesis APK] --> B[Open dashboard]
-    B --> C{Want SMS import?}
-    C -- Yes --> D[Grant SMS permission]
-    D --> E[Scan transaction SMS locally]
-    E --> F[Parse amount, merchant, payment mode]
-    F --> G{Confidence high?}
-    G -- Yes --> H[Save reviewed expense]
-    G -- No --> I[Needs Review queue]
-    I --> J[Approve or ignore]
-    C -- No --> K[Add expense manually]
-    H --> L[Dashboard, budgets, analytics]
-    J --> L
-    K --> L
+Telesis uses sensitive permissions only for local transaction detection:
+
+```xml
+<uses-permission android:name="android.permission.READ_SMS" />
+<uses-permission android:name="android.permission.RECEIVE_SMS" />
+<uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+<uses-feature
+    android:name="android.hardware.telephony"
+    android:required="false" />
 ```
 
+The app intentionally does **not** declare `android.permission.INTERNET`.
+
+Because SMS permissions are sensitive, this project is intended for personal sideloaded use unless future distribution requirements are reviewed carefully.
+
 ---
 
-## Download APK
+## Tech stack
 
-### Option 1 — GitHub Actions artifact
+- Kotlin
+- Jetpack Compose
+- Material 3
+- Room
+- DataStore Preferences
+- Coroutines / Flow
+- GitHub Actions for APK builds
 
-Every push to `main` builds a debug APK and uploads it as a workflow artifact.
-
-1. Open the **Actions** tab.
-2. Open the latest successful **Android APK** workflow run.
-3. Download the `telesis-debug-apk` artifact.
-4. Extract it and install the APK on your Android phone.
-
-### Option 2 — GitHub Release asset
-
-When a version tag such as `v1.0.0` is pushed, the workflow builds the APK and attaches it to the GitHub Release as:
+Application ID:
 
 ```text
-telesis-v1.0.0-debug.apk
+com.smeet.telesis
 ```
-
-Go to **Releases → Latest release → Assets → APK**.
 
 ---
 
@@ -148,113 +123,78 @@ Requirements:
 
 - Android Studio
 - JDK 17
-- Android SDK Platform 35
+- Android SDK 35
 
-Build debug APK:
+Commands:
 
 ```bash
+chmod +x ./gradlew
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
 ./gradlew :app:assembleDebug
 ```
 
-Run unit tests:
-
-```bash
-./gradlew :app:testDebugUnitTest
-```
-
-Run Android lint:
-
-```bash
-./gradlew :app:lintDebug
-```
-
-Expected APK path:
+Generated APK:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Install through ADB:
-
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
 ---
 
-## GitHub Actions APK build
+## GitHub Actions
 
-The workflow lives at:
+The workflow at `.github/workflows/android-apk.yml` runs on `main`, pull requests, tags, and manual dispatch.
 
-```text
-.github/workflows/android-apk.yml
-```
-
-It runs:
+It performs:
 
 ```bash
-./gradlew :app:testDebugUnitTest
-./gradlew :app:lintDebug
-./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest --stacktrace
+./gradlew :app:lintDebug --stacktrace
+./gradlew :app:assembleDebug --stacktrace
 ```
 
-Then it uploads the debug APK as a downloadable GitHub Actions artifact. For version tags, it also publishes the APK as a GitHub Release asset.
-
----
-
-## SMS permission notice
-
-Telesis requests SMS permissions for one reason: to detect transaction messages on the same phone and convert them into expenses.
-
-Declared sensitive permissions:
-
-```xml
-<uses-permission android:name="android.permission.READ_SMS" />
-<uses-permission android:name="android.permission.RECEIVE_SMS" />
-```
-
-This project is not designed for Play Store distribution. Public distribution with SMS permissions has policy restrictions. Use this app only when you understand and accept the permission model.
+After a successful `main` build, it publishes a refreshed `latest` GitHub Release containing the debug APK.
 
 ---
 
 ## Project structure
 
 ```text
-.
-├── app/
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/com/smeet/telesis/
-│       │   ├── MainActivity.kt
-│       │   ├── TelesisApp.kt
-│       │   ├── core/
-│       │   ├── data/
-│       │   ├── sms/
-│       │   ├── ui/
-│       │   └── util/
-│       └── res/
-├── docs/screenshots/
-├── .github/workflows/android-apk.yml
-├── CHANGELOG.md
-├── VERSION.md
-└── README.md
+app/src/main/java/com/smeet/telesis/
+├── data/       # Room entities, DAO, database, repository
+├── sms/        # SMS parser, category engine, receiver
+├── ui/         # Compose UI components and theme
+├── util/       # Money, date, security helpers
+├── MainActivity.kt
+└── TelesisApp.kt
 ```
 
 ---
 
-## License
+## Current status
 
-Telesis is released under the MIT License. See [`LICENSE`](LICENSE).
+Telesis is an early open-source personal app. The debug APK pipeline is active, and the app is intended for testing, iteration, and careful local use.
+
+Known practical limitation: SMS parsing differs by bank, wallet, UPI app, card issuer, and country. Parser rules should be expanded based on real message formats.
 
 ---
 
-## Open-source status
+## Contributing
 
-This is a personal, privacy-first Android project. Contributions should preserve the core promise:
+Useful contributions include:
 
-```text
-No backend. No Firebase. No analytics. No internet permission. Local-first by default.
-```
+- More SMS parser patterns
+- Better category rules
+- UI polish
+- Accessibility improvements
+- Export/import testing
+- Bank-specific parsing fixtures
 
-Before proposing cloud sync, accounts, or third-party integrations, open a discussion explaining how the feature preserves privacy and user control.
+Please avoid adding internet/network SDKs unless the privacy model is explicitly discussed first.
+
+---
+
+## Disclaimer
+
+Telesis is not financial advice, accounting software, or a banking product. It is a local personal expense tracker. Always verify imported transactions against your actual bank or card statement.
