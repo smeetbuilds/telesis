@@ -27,6 +27,68 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Rebuild Gradle wrapper bootstrap for Java 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/telesis-wrapper-src/org/gradle/wrapper /tmp/telesis-wrapper-classes gradle/wrapper
+          cat > /tmp/telesis-wrapper-src/org/gradle/wrapper/GradleWrapperMain.java <<'JAVA'
+          package org.gradle.wrapper;
+          import java.io.*; import java.net.*; import java.nio.file.*; import java.util.*; import java.util.zip.*;
+          public final class GradleWrapperMain {
+            public static void main(String[] args) throws Exception {
+              Path root = locateRoot();
+              Properties p = new Properties();
+              try (InputStream in = Files.newInputStream(root.resolve("gradle/wrapper/gradle-wrapper.properties"))) { p.load(in); }
+              String url = p.getProperty("distributionUrl").replace("\\:", ":");
+              Path home = Paths.get(System.getProperty("user.home"), ".gradle", "wrapper", "dists");
+              Files.createDirectories(home);
+              String zipName = url.substring(url.lastIndexOf('/') + 1);
+              Path zip = home.resolve(zipName);
+              Path dir = home.resolve(zipName.replace("-bin.zip", "").replace("-all.zip", ""));
+              if (!Files.exists(zip)) download(url, zip);
+              Path gradle = findGradle(dir);
+              if (gradle == null) { unzip(zip, dir); gradle = findGradle(dir); }
+              if (gradle == null) throw new IllegalStateException("Gradle executable not found after extracting " + zip);
+              gradle.toFile().setExecutable(true);
+              ArrayList<String> cmd = new ArrayList<>(); cmd.add(gradle.toString()); cmd.addAll(Arrays.asList(args));
+              ProcessBuilder pb = new ProcessBuilder(cmd); pb.directory(root.toFile()); pb.inheritIO();
+              System.exit(pb.start().waitFor());
+            }
+            private static Path locateRoot() throws Exception {
+              Path jar = Paths.get(GradleWrapperMain.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath();
+              Path d = Files.isRegularFile(jar) ? jar.getParent() : jar;
+              for (int i = 0; i < 3; i++) d = d.getParent();
+              return d;
+            }
+            private static void download(String url, Path zip) throws IOException {
+              System.out.println("Downloading Gradle distribution: " + url);
+              URLConnection c = new URL(url).openConnection(); c.setConnectTimeout(30000); c.setReadTimeout(30000);
+              try (InputStream in = c.getInputStream()) { Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING); }
+            }
+            private static void unzip(Path zip, Path dir) throws IOException {
+              Files.createDirectories(dir);
+              try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zip))) {
+                ZipEntry e; while ((e = zis.getNextEntry()) != null) {
+                  Path out = dir.resolve(e.getName()).normalize();
+                  if (!out.startsWith(dir)) throw new IOException("Blocked zip entry " + e.getName());
+                  if (e.isDirectory()) Files.createDirectories(out); else { Files.createDirectories(out.getParent()); Files.copy(zis, out, StandardCopyOption.REPLACE_EXISTING); }
+                }
+              }
+            }
+            private static Path findGradle(Path dir) throws IOException {
+              if (!Files.exists(dir)) return null;
+              try (java.util.stream.Stream<Path> s = Files.walk(dir)) {
+                return s.filter(p -> p.getFileName().toString().equals("gradle") && p.toString().contains(File.separator + "bin" + File.separator)).findFirst().orElse(null);
+              }
+            }
+          }
+          JAVA
+          javac --release 17 -d /tmp/telesis-wrapper-classes /tmp/telesis-wrapper-src/org/gradle/wrapper/GradleWrapperMain.java
+          printf 'Manifest-Version: 1.0\nMain-Class: org.gradle.wrapper.GradleWrapperMain\n' > /tmp/telesis-wrapper-manifest.mf
+          jar cfm gradle/wrapper/gradle-wrapper.jar /tmp/telesis-wrapper-manifest.mf -C /tmp/telesis-wrapper-classes .
+          javap -verbose -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain | grep 'major version: 61'
+
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
