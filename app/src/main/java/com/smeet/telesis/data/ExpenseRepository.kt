@@ -1,12 +1,12 @@
 package com.smeet.telesis.data
 
+import androidx.room.withTransaction
 import com.smeet.telesis.sms.CategoryEngine
 import com.smeet.telesis.sms.DeviceSms
 import com.smeet.telesis.sms.ParsedSms
 import com.smeet.telesis.sms.SmsParser
 import com.smeet.telesis.util.DateUtils
 import com.smeet.telesis.util.Security
-import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -19,7 +19,7 @@ import kotlin.math.abs
 class ExpenseRepository(private val database: TelesisDatabase) {
     private val dao: ExpenseDao = database.expenseDao()
     val categories: Flow<List<CategoryEntity>> = dao.observeCategories()
-    val recentExpenses: Flow<List<ExpenseWithCategory>> = dao.observeAllExpenses()
+    val recentExpenses: Flow<List<ExpenseWithCategory>> = dao.observeRecentExpenses(limit = 500)
     val reviewQueue: Flow<List<ExpenseWithCategory>> = dao.observeReviewQueue()
     val rules: Flow<List<RuleEntity>> = dao.observeRules()
     val budgets: Flow<List<BudgetEntity>> = dao.observeBudgets()
@@ -74,7 +74,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                 dateTime = dateTime,
                 source = source,
                 confidence = 100,
-                note = note,
+                note = note.take(240),
                 isReviewed = true
             )
         )
@@ -103,7 +103,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                 paymentMode = paymentMode,
                 dateTime = dateTime,
                 confidence = 100,
-                note = note.trim(),
+                note = note.trim().take(240),
                 isReviewed = true,
                 updatedAt = DateUtils.now()
             )
@@ -128,8 +128,10 @@ class ExpenseRepository(private val database: TelesisDatabase) {
     }
 
     suspend fun addRule(matchText: String, categoryName: String, merchantName: String = "") {
+        val cleanMatch = matchText.lowercase().trim().take(80)
+        if (cleanMatch.length < 2) return
         val category = ensureCategory(categoryName)
-        dao.upsertRule(RuleEntity(matchText = matchText.lowercase().trim(), categoryId = category.id, merchantName = merchantName.trim()))
+        dao.upsertRule(RuleEntity(matchText = cleanMatch, categoryId = category.id, merchantName = merchantName.trim().take(52)))
     }
 
     suspend fun deleteRule(id: Long) = dao.deleteRule(id)
@@ -152,7 +154,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                 paymentMode = paymentMode,
                 intervalType = interval,
                 nextDueDate = nextDueDate,
-                note = note.trim()
+                note = note.trim().take(240)
             )
         )
     }
@@ -178,7 +180,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                             source = TransactionSource.RECURRING,
                             smsHash = recurringHash,
                             confidence = 100,
-                            note = item.note.ifBlank { "Generated from recurring expense" },
+                            note = item.note.ifBlank { "Generated from recurring expense" }.take(240),
                             isReviewed = true
                         )
                     )
@@ -231,13 +233,13 @@ class ExpenseRepository(private val database: TelesisDatabase) {
         if (body.isBlank()) return ImportOutcome.Ignored
         val hash = Security.sha256(sender.trim() + "|" + body.trim() + "|" + date)
         if (dao.countSmsLog(hash) > 0 || dao.countBySmsHash(hash) > 0) {
-            dao.insertSmsLog(SmsLogEntity(sender = sender, bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.DUPLICATE, reason = "Duplicate SMS hash"))
+            dao.insertSmsLog(SmsLogEntity(sender = sender.take(80), bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.DUPLICATE, reason = "Duplicate SMS hash"))
             return ImportOutcome.Duplicate
         }
 
         return when (val parsed = SmsParser.parse(sender, body, date)) {
             is ParsedSms.Ignored -> {
-                dao.insertSmsLog(SmsLogEntity(sender = sender, bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.IGNORED, reason = parsed.reason))
+                dao.insertSmsLog(SmsLogEntity(sender = sender.take(80), bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.IGNORED, reason = parsed.reason.take(160)))
                 ImportOutcome.Ignored
             }
             is ParsedSms.Transaction -> {
@@ -251,7 +253,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                     cachedCategoriesById?.get(rule.categoryId) ?: dao.getCategoryById(rule.categoryId) ?: ensureCategoryCached(parsed.suggestedCategory, cachedCategoriesByName, cachedCategoriesById)
                 } else ensureCategoryCached(parsed.suggestedCategory, cachedCategoriesByName, cachedCategoriesById)
 
-                val merchant = rule?.merchantName?.takeIf { it.isNotBlank() } ?: parsed.merchant
+                val merchant = (rule?.merchantName?.takeIf { it.isNotBlank() } ?: parsed.merchant).take(52)
                 val requiresReview = parsed.confidence < 78 || parsed.type == TransactionType.TRANSFER
                 val row = ExpenseEntity(
                     amountPaise = parsed.amountPaise,
@@ -271,12 +273,12 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                 val status = if (id > 0 && requiresReview) SmsParsedStatus.REVIEW else if (id > 0) SmsParsedStatus.IMPORTED else SmsParsedStatus.DUPLICATE
                 dao.insertSmsLog(
                     SmsLogEntity(
-                        sender = sender,
+                        sender = sender.take(80),
                         bodyHash = hash,
                         smsDate = date,
                         parsedStatus = status,
                         rawAmountPaise = parsed.amountPaise,
-                        rawMerchant = parsed.merchant,
+                        rawMerchant = parsed.merchant.take(80),
                         confidence = parsed.confidence
                     )
                 )
@@ -294,7 +296,8 @@ class ExpenseRepository(private val database: TelesisDatabase) {
         val now = DateUtils.now()
         if (!force && now - lastSubscriptionDetectionAt < 60_000L) return dao.getAllSubscriptions().size
         lastSubscriptionDetectionAt = now
-        val expenses = dao.getReviewedExpensesAscending()
+        val recentFloor = now - ChronoUnit.DAYS.duration.toMillis() * 730
+        val expenses = dao.getReviewedExpensesAscending().filter { it.dateTime >= recentFloor }
         val categories = dao.getCategories().associateBy { it.id }
         val grouped = expenses
             .filter { it.type == TransactionType.EXPENSE && it.amountPaise > 0 }
@@ -383,7 +386,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
     }
 
     private suspend fun ensureCategory(name: String): CategoryEntity {
-        val cleanName = name.ifBlank { "Other" }
+        val cleanName = name.ifBlank { "Other" }.take(48)
         dao.getCategoryByName(cleanName)?.let { return it }
         val default = CategoryEngine.defaultCategories.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
         val categoryName = default?.name ?: cleanName
@@ -442,97 +445,137 @@ class ExpenseRepository(private val database: TelesisDatabase) {
 
     suspend fun importBackup(json: String): ImportBackupReport {
         val obj = JSONObject(json)
-        seedDefaults()
-        val idMap = mutableMapOf<Long, Long>()
+        validateBackupEnvelope(obj)
         val categories = obj.optJSONArray("categories") ?: JSONArray()
-        for (i in 0 until categories.length()) {
-            val c = categories.getJSONObject(i)
-            val oldId = c.optLong("id", 0)
-            val default = CategoryEngine.defaultCategories.firstOrNull { it.name.equals(c.optString("name"), true) }
-            val insertedId = dao.insertCategory(
-                CategoryEntity(
-                    name = c.optString("name", default?.name ?: "Other"),
-                    icon = c.optString("icon", default?.icon ?: "•"),
-                    colorKey = c.optString("colorKey", default?.colorKey ?: "neutral"),
-                    monthlyBudgetPaise = c.optLong("monthlyBudgetPaise", default?.monthlyBudgetPaise ?: 0)
-                )
-            )
-            val actual = dao.getCategoryByName(c.optString("name", "Other")) ?: dao.getCategoryByName("Other")!!
-            if (oldId > 0) idMap[oldId] = if (insertedId > 0) insertedId else actual.id
-        }
-
-        var expenses = 0
         val expenseArray = obj.optJSONArray("expenses") ?: JSONArray()
-        for (i in 0 until expenseArray.length()) {
-            val e = expenseArray.getJSONObject(i)
-            val categoryId = idMap[e.optLong("categoryId")] ?: ensureCategory("Other").id
-            val amountPaise = e.optLong("amountPaise")
-            val type = enumValueOr(e.optString("type"), TransactionType.EXPENSE)
-            val merchant = e.optString("merchant", "Imported Expense")
-            val paymentMode = enumValueOr(e.optString("paymentMode"), PaymentMode.UNKNOWN)
-            val dateTime = e.optLong("dateTime", DateUtils.now())
-            val note = e.optString("note", "Restored from backup")
-            val restoredHash = Security.sha256("restore|$amountPaise|$type|$merchant|$categoryId|$paymentMode|$dateTime|$note")
-            if (dao.countBySmsHash(restoredHash) == 0) {
-                val id = dao.insertExpense(
-                    ExpenseEntity(
-                        amountPaise = amountPaise,
-                        type = type,
-                        merchant = merchant,
-                        categoryId = categoryId,
-                        paymentMode = paymentMode,
-                        accountHint = e.optString("accountHint", ""),
-                        dateTime = dateTime,
-                        source = TransactionSource.IMPORT,
-                        smsHash = restoredHash,
-                        confidence = e.optInt("confidence", 100),
-                        note = note,
-                        isReviewed = e.optBoolean("isReviewed", true)
+        val ruleArray = obj.optJSONArray("rules") ?: JSONArray()
+        val recArray = obj.optJSONArray("recurring") ?: JSONArray()
+        validateBackupSize(categories, expenseArray, ruleArray, recArray)
+
+        return database.withTransaction {
+            seedDefaults()
+            val idMap = mutableMapOf<Long, Long>()
+            for (i in 0 until categories.length()) {
+                val c = categories.getJSONObject(i)
+                val oldId = c.optLong("id", 0)
+                val rawName = c.optString("name", "Other").trim().take(48)
+                val default = CategoryEngine.defaultCategories.firstOrNull { it.name.equals(rawName, true) }
+                val categoryName = default?.name ?: rawName.ifBlank { "Other" }
+                val insertedId = dao.insertCategory(
+                    CategoryEntity(
+                        name = categoryName,
+                        icon = c.optString("icon", default?.icon ?: "•").take(8),
+                        colorKey = c.optString("colorKey", default?.colorKey ?: "neutral").take(24),
+                        monthlyBudgetPaise = validNonNegativeAmount(c.optLong("monthlyBudgetPaise", default?.monthlyBudgetPaise ?: 0)) ?: 0
                     )
                 )
-                if (id > 0) expenses++
+                val actual = dao.getCategoryByName(categoryName) ?: dao.getCategoryByName("Other")!!
+                if (oldId > 0) idMap[oldId] = if (insertedId > 0) insertedId else actual.id
             }
-        }
 
-        var rules = 0
-        val ruleArray = obj.optJSONArray("rules") ?: JSONArray()
-        for (i in 0 until ruleArray.length()) {
-            val r = ruleArray.getJSONObject(i)
-            val categoryId = idMap[r.optLong("categoryId")] ?: ensureCategory("Other").id
-            val id = dao.upsertRule(
-                RuleEntity(
-                    matchText = r.optString("matchText"),
-                    senderFilter = r.optString("senderFilter", ""),
-                    categoryId = categoryId,
-                    merchantName = r.optString("merchantName", ""),
-                    enabled = r.optBoolean("enabled", true)
-                )
-            )
-            if (id >= 0) rules++
-        }
+            var expenses = 0
+            for (i in 0 until expenseArray.length()) {
+                val e = expenseArray.getJSONObject(i)
+                val amountPaise = validPositiveAmount(e.optLong("amountPaise")) ?: continue
+                val type = enumValueOr(e.optString("type"), TransactionType.EXPENSE)
+                val merchant = cleanImportedText(e.optString("merchant", "Imported Expense"), 52).ifBlank { "Imported Expense" }
+                val paymentMode = enumValueOr(e.optString("paymentMode"), PaymentMode.UNKNOWN)
+                val dateTime = validDateTime(e.optLong("dateTime", DateUtils.now())) ?: continue
+                val note = cleanImportedText(e.optString("note", "Restored from backup"), 240)
+                val categoryId = idMap[e.optLong("categoryId")] ?: ensureCategory("Other").id
+                val restoredHash = Security.sha256("restore|$amountPaise|$type|$merchant|$categoryId|$paymentMode|$dateTime|$note")
+                if (dao.countBySmsHash(restoredHash) == 0) {
+                    val id = dao.insertExpense(
+                        ExpenseEntity(
+                            amountPaise = amountPaise,
+                            type = type,
+                            merchant = merchant,
+                            categoryId = categoryId,
+                            paymentMode = paymentMode,
+                            accountHint = cleanImportedText(e.optString("accountHint", ""), 24),
+                            dateTime = dateTime,
+                            source = TransactionSource.IMPORT,
+                            smsHash = restoredHash,
+                            confidence = e.optInt("confidence", 100).coerceIn(0, 100),
+                            note = note,
+                            isReviewed = e.optBoolean("isReviewed", true)
+                        )
+                    )
+                    if (id > 0) expenses++
+                }
+            }
 
-        var recurring = 0
-        val recArray = obj.optJSONArray("recurring") ?: JSONArray()
-        for (i in 0 until recArray.length()) {
-            val r = recArray.getJSONObject(i)
-            val categoryId = idMap[r.optLong("categoryId")] ?: ensureCategory("Other").id
-            val id = dao.upsertRecurringExpense(
-                RecurringExpenseEntity(
-                    amountPaise = r.optLong("amountPaise"),
-                    merchant = r.optString("merchant", "Recurring Expense"),
-                    categoryId = categoryId,
-                    paymentMode = enumValueOr(r.optString("paymentMode"), PaymentMode.UNKNOWN),
-                    intervalType = enumValueOr(r.optString("intervalType"), RecurringInterval.MONTHLY),
-                    nextDueDate = r.optLong("nextDueDate", DateUtils.now()),
-                    note = r.optString("note", ""),
-                    enabled = r.optBoolean("enabled", true)
+            var rules = 0
+            for (i in 0 until ruleArray.length()) {
+                val r = ruleArray.getJSONObject(i)
+                val matchText = cleanImportedText(r.optString("matchText"), 80).lowercase()
+                if (matchText.length < 2) continue
+                val categoryId = idMap[r.optLong("categoryId")] ?: ensureCategory("Other").id
+                val id = dao.upsertRule(
+                    RuleEntity(
+                        matchText = matchText,
+                        senderFilter = cleanImportedText(r.optString("senderFilter", ""), 40),
+                        categoryId = categoryId,
+                        merchantName = cleanImportedText(r.optString("merchantName", ""), 52),
+                        enabled = r.optBoolean("enabled", true)
+                    )
                 )
-            )
-            if (id >= 0) recurring++
+                if (id >= 0) rules++
+            }
+
+            var recurring = 0
+            for (i in 0 until recArray.length()) {
+                val r = recArray.getJSONObject(i)
+                val amountPaise = validPositiveAmount(r.optLong("amountPaise")) ?: continue
+                val categoryId = idMap[r.optLong("categoryId")] ?: ensureCategory("Other").id
+                val nextDueDate = validDateTime(r.optLong("nextDueDate", DateUtils.now())) ?: DateUtils.now()
+                val id = dao.upsertRecurringExpense(
+                    RecurringExpenseEntity(
+                        amountPaise = amountPaise,
+                        merchant = cleanImportedText(r.optString("merchant", "Recurring Expense"), 52).ifBlank { "Recurring Expense" },
+                        categoryId = categoryId,
+                        paymentMode = enumValueOr(r.optString("paymentMode"), PaymentMode.UNKNOWN),
+                        intervalType = enumValueOr(r.optString("intervalType"), RecurringInterval.MONTHLY),
+                        nextDueDate = nextDueDate,
+                        note = cleanImportedText(r.optString("note", ""), 240),
+                        enabled = r.optBoolean("enabled", true)
+                    )
+                )
+                if (id >= 0) recurring++
+            }
+            detectSubscriptions(force = true)
+            ImportBackupReport(categories = categories.length(), expenses = expenses, rules = rules, recurring = recurring)
         }
-        detectSubscriptions(force = true)
-        return ImportBackupReport(categories = categories.length(), expenses = expenses, rules = rules, recurring = recurring)
     }
+
+    private fun validateBackupEnvelope(obj: JSONObject) {
+        val appName = obj.optString("app", "Telesis")
+        if (appName.isNotBlank() && appName !in setOf("Telesis", "SpendVault")) {
+            throw IllegalArgumentException("Selected file is not a Telesis backup")
+        }
+    }
+
+    private fun validateBackupSize(categories: JSONArray, expenses: JSONArray, rules: JSONArray, recurring: JSONArray) {
+        require(categories.length() <= 1_000) { "Backup has too many categories" }
+        require(expenses.length() <= 100_000) { "Backup has too many expenses" }
+        require(rules.length() <= 2_000) { "Backup has too many rules" }
+        require(recurring.length() <= 2_000) { "Backup has too many recurring items" }
+    }
+
+    private fun validPositiveAmount(value: Long): Long? = value.takeIf { it in 1..99_999_999_999L }
+    private fun validNonNegativeAmount(value: Long): Long? = value.takeIf { it in 0..99_999_999_999L }
+
+    private fun validDateTime(value: Long): Long? {
+        val earliest = Instant.parse("2000-01-01T00:00:00Z").toEpochMilli()
+        val latest = DateUtils.now() + ChronoUnit.DAYS.duration.toMillis() * 730
+        return value.takeIf { it in earliest..latest }
+    }
+
+    private fun cleanImportedText(value: String, max: Int): String = value
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(max)
 
     private inline fun <reified T : Enum<T>> enumValueOr(value: String, fallback: T): T =
         runCatching { enumValueOf<T>(value) }.getOrDefault(fallback)
