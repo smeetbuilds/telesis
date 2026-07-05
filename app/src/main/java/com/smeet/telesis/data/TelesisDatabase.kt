@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 
 @Database(
     entities = [
@@ -25,6 +26,7 @@ abstract class TelesisDatabase : RoomDatabase() {
 
     companion object {
         @Volatile private var INSTANCE: TelesisDatabase? = null
+        private val MIGRATIONS = arrayOf<Migration>()
 
         fun get(context: Context): TelesisDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
@@ -32,6 +34,7 @@ abstract class TelesisDatabase : RoomDatabase() {
                 TelesisDatabase::class.java,
                 "telesis.db"
             )
+                .addMigrations(*MIGRATIONS)
                 .build()
                 .also { INSTANCE = it }
         }
