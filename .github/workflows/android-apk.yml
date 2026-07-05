@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -126,7 +128,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release delete latest --cleanup-tag --yes || true
+          gh release delete latest --yes || true
+          git push origin :refs/tags/latest || true
+          git tag -f latest "${GITHUB_SHA}"
+          git push -f origin latest
           gh release create latest \
             build/apk/telesis-debug.apk \
             build/apk/telesis-debug.apk.sha256 \
