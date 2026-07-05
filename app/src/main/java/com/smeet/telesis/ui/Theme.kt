@@ -53,6 +53,6 @@ private val LightScheme = lightColorScheme(
 
 @Composable
 fun TelesisTheme(content: @Composable () -> Unit) {
-    val scheme: ColorScheme = if (isSystemInDarkTheme()) DarkScheme else DarkScheme
+    val scheme: ColorScheme = if (isSystemInDarkTheme()) DarkScheme else LightScheme
     MaterialTheme(colorScheme = scheme, typography = androidx.compose.material3.Typography(), content = content)
 }
