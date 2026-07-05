@@ -58,7 +58,7 @@ jobs:
             private static Path locateRoot() throws Exception {
               Path jar = Paths.get(GradleWrapperMain.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath();
               Path d = Files.isRegularFile(jar) ? jar.getParent() : jar;
-              for (int i = 0; i < 3; i++) d = d.getParent();
+              for (int i = 0; i < 2; i++) d = d.getParent();
               return d;
             }
             private static void download(String url, Path zip) throws IOException {
