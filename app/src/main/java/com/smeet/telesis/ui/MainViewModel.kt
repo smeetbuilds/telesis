@@ -42,30 +42,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = app.repository
     private val smsReader = SmsReader(application.contentResolver)
 
-    val dashboard: StateFlow<DashboardState> = combine(
+    private val dashboardPrimary = combine(
         repo.observeMonthlyTotal(),
         repo.observeTodayTotal(),
         repo.observeMonthlyCategorySpend(),
         repo.recentExpenses,
-        repo.reviewQueue,
+        repo.reviewQueue
+    ) { monthSpent, todaySpent, categories, recent, review ->
+        DashboardPrimary(monthSpent, todaySpent, categories, recent, review)
+    }
+
+    private val dashboardSecondary = combine(
         repo.observeTopMerchants(),
         repo.observePaymentModes(),
         repo.observeDailySpend(),
         repo.recurringExpenses,
         repo.subscriptions
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
+    ) { merchants, paymentModes, dailySpend, recurring, subscriptions ->
+        DashboardSecondary(merchants, paymentModes, dailySpend, recurring, subscriptions)
+    }
+
+    val dashboard: StateFlow<DashboardState> = combine(dashboardPrimary, dashboardSecondary) { primary, secondary ->
         DashboardState(
-            monthSpentPaise = values[0] as Long,
-            todaySpentPaise = values[1] as Long,
-            categories = values[2] as List<CategorySpend>,
-            recent = values[3] as List<ExpenseWithCategory>,
-            review = values[4] as List<ExpenseWithCategory>,
-            merchants = values[5] as List<MerchantSpend>,
-            paymentModes = values[6] as List<PaymentModeSpend>,
-            dailySpend = values[7] as List<DailySpend>,
-            recurring = values[8] as List<RecurringExpenseEntity>,
-            subscriptions = values[9] as List<SubscriptionEntity>
+            monthSpentPaise = primary.monthSpentPaise,
+            todaySpentPaise = primary.todaySpentPaise,
+            categories = primary.categories,
+            recent = primary.recent.take(12),
+            review = primary.review,
+            merchants = secondary.merchants,
+            paymentModes = secondary.paymentModes,
+            dailySpend = secondary.dailySpend,
+            recurring = secondary.recurring,
+            subscriptions = secondary.subscriptions
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
 
@@ -255,8 +263,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val json = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    val declaredSize = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                    if (declaredSize > MAX_BACKUP_BYTES) error("Backup file is too large")
+                    val text = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                         ?: error("Unable to read selected backup file")
+                    if (text.toByteArray(Charsets.UTF_8).size > MAX_BACKUP_BYTES) error("Backup file is too large")
+                    text
                 }
                 val report: ImportBackupReport = withContext(Dispatchers.IO) { repo.importBackup(json) }
                 onDone(true, "Restored ${report.expenses} expenses, ${report.categories} categories, ${report.rules} rules, ${report.recurring} recurring items")
@@ -265,7 +277,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    companion object {
+        private const val MAX_BACKUP_BYTES = 10 * 1024 * 1024
+    }
 }
+
+private data class DashboardPrimary(
+    val monthSpentPaise: Long,
+    val todaySpentPaise: Long,
+    val categories: List<CategorySpend>,
+    val recent: List<ExpenseWithCategory>,
+    val review: List<ExpenseWithCategory>
+)
+
+private data class DashboardSecondary(
+    val merchants: List<MerchantSpend>,
+    val paymentModes: List<PaymentModeSpend>,
+    val dailySpend: List<DailySpend>,
+    val recurring: List<RecurringExpenseEntity>,
+    val subscriptions: List<SubscriptionEntity>
+)
 
 data class DashboardState(
     val monthSpentPaise: Long = 0,
