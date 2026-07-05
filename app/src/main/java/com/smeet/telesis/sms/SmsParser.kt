@@ -16,6 +16,15 @@ object SmsParser {
     )
     private val creditWords = listOf("credited", "credit", "received", "deposited", "refund", "cashback", "reversal")
     private val transferWords = listOf("self transfer", "transferred to your", "sent to self")
+    private val creditCardContextWords = listOf(
+        "credit card", "cc", "card ending", "card no", "card number", "card account", "card payment",
+        "card bill", "bill payment", "outstanding", "statement balance", "total amount due"
+    )
+    private val creditCardPaymentWords = listOf(
+        "payment received", "payment of", "payment towards", "payment for", "paid towards", "paid for",
+        "bill paid", "bill payment", "card payment", "credited to your credit card", "credited in your credit card",
+        "credited to card", "received towards", "received for your credit card", "thank you for your payment"
+    )
     private val ignoreWords = listOf(
         "otp", "one time password", "password", "verification", "login", "offer", "discount",
         "sale", "statement", "bill due", "due on", "minimum due", "available balance", "balance is",
@@ -31,6 +40,9 @@ object SmsParser {
         val normalized = body.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
         val lower = normalized.lowercase()
 
+        if (isCreditCardDueReminder(lower)) {
+            return ParsedSms.Ignored("Ignored credit-card bill due reminder")
+        }
         if (ignoreWords.any { lower.contains(it) } && !debitWords.any { lower.contains(it) }) {
             return ParsedSms.Ignored("Ignored OTP, promotional, due reminder, or non-transaction SMS")
         }
@@ -38,18 +50,20 @@ object SmsParser {
         val amount = extractAmount(normalized)
             ?: return ParsedSms.Ignored("No amount found")
 
+        val isCreditCardPayment = isCreditCardPayment(lower)
         val type = when {
+            isCreditCardPayment -> TransactionType.TRANSFER
             transferWords.any { lower.contains(it) } -> TransactionType.TRANSFER
             creditWords.any { lower.contains(it) } && debitWords.none { lower.contains(it) } -> TransactionType.INCOME
             debitWords.any { lower.contains(it) } -> TransactionType.EXPENSE
             else -> TransactionType.EXPENSE
         }
 
-        val paymentMode = detectPaymentMode(lower)
-        val merchant = cleanMerchant(extractMerchant(normalized, lower, sender, paymentMode))
+        val paymentMode = detectPaymentMode(lower, isCreditCardPayment)
+        val merchant = cleanMerchant(extractMerchant(normalized, lower, sender, paymentMode, isCreditCardPayment))
         val category = CategoryEngine.detect(merchant, normalized, paymentMode, type)
         val accountHint = accountRegexes.firstNotNullOfOrNull { it.find(normalized)?.groupValues?.getOrNull(1) } ?: ""
-        val confidence = score(lower, merchant, amount, paymentMode, type)
+        val confidence = score(lower, merchant, amount, paymentMode, type, isCreditCardPayment)
         return ParsedSms.Transaction(
             amountPaise = amount,
             type = type,
@@ -60,6 +74,21 @@ object SmsParser {
             smsDate = smsDate,
             confidence = confidence
         )
+    }
+
+    private fun isCreditCardDueReminder(lower: String): Boolean {
+        val hasCardContext = creditCardContextWords.any { lower.contains(it) }
+        val hasDueLanguage = listOf("due", "minimum amount due", "total amount due", "payment due", "statement generated", "bill generated").any { lower.contains(it) }
+        val hasActualPaymentLanguage = creditCardPaymentWords.any { lower.contains(it) } || lower.contains("paid")
+        return hasCardContext && hasDueLanguage && !hasActualPaymentLanguage
+    }
+
+    private fun isCreditCardPayment(lower: String): Boolean {
+        val hasCardContext = creditCardContextWords.any { lower.contains(it) }
+        val hasPaymentLanguage = creditCardPaymentWords.any { lower.contains(it) }
+        val hasIssuerPaymentPattern = lower.contains("credit card") && (lower.contains("credited") || lower.contains("received") || lower.contains("paid"))
+        val isRewardOrReversal = listOf("cashback", "reward", "points", "reversal", "refund", "chargeback").any { lower.contains(it) }
+        return hasCardContext && (hasPaymentLanguage || hasIssuerPaymentPattern) && !isRewardOrReversal
     }
 
     private fun extractAmount(text: String): Long? {
@@ -73,8 +102,10 @@ object SmsParser {
                 val window = lower.substring(windowStart, windowEnd + 1)
                 var score = 0
                 if (debitWords.any { window.contains(it) } || creditWords.any { window.contains(it) }) score += 40
+                if (creditCardPaymentWords.any { window.contains(it) }) score += 45
                 if (window.contains("amt") || window.contains("amount") || window.contains("rs") || window.contains("inr") || window.contains("₹")) score += 20
                 if (window.contains("bal") || window.contains("available") || window.contains("limit") || window.contains("outstanding")) score -= 45
+                if (window.contains("minimum due") || window.contains("total amount due")) score -= 35
                 if (paise in 1..99_999_999L) score += 15
                 AmountCandidate(paise, score, match.range.first)
             }.toList()
@@ -82,7 +113,9 @@ object SmsParser {
         return candidates.maxWithOrNull(compareBy<AmountCandidate> { it.score }.thenByDescending { -it.position })?.amountPaise
     }
 
-    private fun detectPaymentMode(lower: String): PaymentMode = when {
+    private fun detectPaymentMode(lower: String, isCreditCardPayment: Boolean): PaymentMode = when {
+        isCreditCardPayment && (lower.contains("upi") || lower.contains("imps") || lower.contains("neft") || lower.contains("rtgs") || lower.contains("bank")) -> PaymentMode.BANK
+        isCreditCardPayment -> PaymentMode.CARD
         lower.contains("upi") || lower.contains("vpa") || lower.contains("imps") -> PaymentMode.UPI
         lower.contains("debit card") || lower.contains("credit card") || lower.contains("card") || lower.contains("pos") -> PaymentMode.CARD
         lower.contains("paytm") || lower.contains("phonepe wallet") || lower.contains("wallet") || lower.contains("amazon pay") -> PaymentMode.WALLET
@@ -92,7 +125,8 @@ object SmsParser {
         else -> PaymentMode.UNKNOWN
     }
 
-    private fun extractMerchant(text: String, lower: String, sender: String, mode: PaymentMode): String {
+    private fun extractMerchant(text: String, lower: String, sender: String, mode: PaymentMode, isCreditCardPayment: Boolean): String {
+        if (isCreditCardPayment) return "Credit Card Payment"
         val patterns = listOf(
             Regex("(?:at|to|towards|for|on)\\s+([A-Z0-9][A-Za-z0-9 ._&@/-]{2,48}?)(?:\\s+(?:on|via|using|from|Ref|UPI|Txn|transaction|Info|Avl|available)|[.,;]|$)", RegexOption.IGNORE_CASE),
             Regex("(?:merchant|payee)[:\\s-]+([A-Za-z0-9 ._&@/-]{2,48})(?:[.,;]|$)", RegexOption.IGNORE_CASE),
@@ -127,12 +161,13 @@ object SmsParser {
             }
     }
 
-    private fun score(lower: String, merchant: String, amount: Long, paymentMode: PaymentMode, type: TransactionType): Int {
+    private fun score(lower: String, merchant: String, amount: Long, paymentMode: PaymentMode, type: TransactionType, isCreditCardPayment: Boolean): Int {
         var score = 40
         if (amount > 0) score += 25
         if (debitWords.any { lower.contains(it) } || creditWords.any { lower.contains(it) }) score += 15
         if (paymentMode != PaymentMode.UNKNOWN) score += 10
         if (merchant != "Unknown Merchant" && merchant.length >= 3) score += 10
+        if (isCreditCardPayment) score += 10
         if (type == TransactionType.TRANSFER) score -= 15
         if (lower.contains("failed") || lower.contains("declined")) score -= 40
         return score.coerceIn(0, 100)
