@@ -1,16 +1,16 @@
-val hasReleaseSigning = listOf(
-    "ANDROID_KEYSTORE_FILE",
-    "ANDROID_KEYSTORE_PASSWORD",
-    "ANDROID_KEY_ALIAS",
-    "ANDROID_KEY_PASSWORD"
-).all { !System.getenv(it).isNullOrBlank() }
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.kapt")
 }
+
+val hasReleaseSigning = listOf(
+    "ANDROID_KEYSTORE_FILE",
+    "ANDROID_KEYSTORE_PASSWORD",
+    "ANDROID_KEY_ALIAS",
+    "ANDROID_KEY_PASSWORD"
+).all { !System.getenv(it).isNullOrBlank() }
 
 android {
     namespace = "com.smeet.telesis"
