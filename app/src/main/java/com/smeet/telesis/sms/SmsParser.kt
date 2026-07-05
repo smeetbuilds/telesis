@@ -11,14 +11,23 @@ object SmsParser {
     )
 
     private val debitWords = listOf(
-        "debited", "debit", "spent", "paid", "purchase", "txn", "transaction", "withdrawn",
-        "deducted", "sent", "charged", "used at", "payment of", "transferred"
+        "debited", "debit", "spent", "purchase", "txn", "transaction", "withdrawn",
+        "deducted", "charged", "used at", "paid to"
     )
-    private val creditWords = listOf("credited", "credit", "received", "deposited", "refund", "cashback", "reversal")
-    private val transferWords = listOf("self transfer", "transferred to your", "sent to self")
+    private val creditWords = listOf("credited", "credit", "received", "deposited", "salary", "refund", "cashback", "reversal")
+    private val transferWords = listOf(
+        "self transfer", "transferred to your", "sent to self", "transferred", "sent from", "sent to",
+        "paid from", "payment received for your credit card", "credited to your credit card"
+    )
     private val failedTransactionWords = listOf(
         "failed", "declined", "unsuccessful", "not processed", "could not be processed", "reversed due to failure",
         "transaction failed", "payment failed", "txn failed", "request failed"
+    )
+    private val billRechargeWords = listOf(
+        "recharge", "mobile recharge", "prepaid recharge", "postpaid bill", "mobile bill", "dth recharge",
+        "electricity bill", "power bill", "gas bill", "water bill", "broadband bill", "wifi bill",
+        "landline bill", "utility bill", "bbps", "billpay", "bill payment", "bill paid", "payment of bill",
+        "paid bill", "autopay bill", "billdesk", "biller", "operator recharge", "plan validity", "data pack"
     )
     private val creditCardContextWords = listOf(
         "credit card", "cc", "card ending", "card no", "card number", "card account", "card payment",
@@ -32,7 +41,7 @@ object SmsParser {
     private val ignoreWords = listOf(
         "otp", "one time password", "password", "verification", "login", "offer", "discount",
         "sale", "statement", "bill due", "due on", "minimum due", "available balance", "balance is",
-        "pre-approved", "loan", "insurance", "kyc", "mandate request"
+        "pre-approved", "loan", "insurance", "kyc", "mandate request", "reward points", "voucher"
     )
 
     private val accountRegexes = listOf(
@@ -47,10 +56,13 @@ object SmsParser {
         if (failedTransactionWords.any { lower.contains(it) }) {
             return ParsedSms.Ignored("Ignored failed or declined transaction SMS")
         }
+        if (isBillOrRechargePayment(lower)) {
+            return ParsedSms.Ignored("Ignored bill, recharge, or utility-payment SMS")
+        }
         if (isCreditCardDueReminder(lower)) {
             return ParsedSms.Ignored("Ignored credit-card bill due reminder")
         }
-        if (ignoreWords.any { lower.contains(it) } && !debitWords.any { lower.contains(it) }) {
+        if (ignoreWords.any { lower.contains(it) } && !hasRealDebitOrCreditSignal(lower)) {
             return ParsedSms.Ignored("Ignored OTP, promotional, due reminder, or non-transaction SMS")
         }
 
@@ -81,6 +93,15 @@ object SmsParser {
             smsDate = smsDate,
             confidence = confidence
         )
+    }
+
+    private fun hasRealDebitOrCreditSignal(lower: String): Boolean =
+        debitWords.any { lower.contains(it) } || creditWords.any { lower.contains(it) }
+
+    private fun isBillOrRechargePayment(lower: String): Boolean {
+        if (!billRechargeWords.any { lower.contains(it) }) return false
+        val isSalaryOrRefund = listOf("salary", "refund", "cashback", "reversal").any { lower.contains(it) }
+        return !isSalaryOrRefund
     }
 
     private fun isCreditCardDueReminder(lower: String): Boolean {
@@ -211,9 +232,6 @@ private val KnownMerchants = mapOf(
     "ola" to "Ola",
     "rapido" to "Rapido",
     "irctc" to "IRCTC",
-    "jio" to "Jio",
-    "airtel" to "Airtel",
-    "vi " to "Vi",
     "netflix" to "Netflix",
     "spotify" to "Spotify",
     "hotstar" to "Disney+ Hotstar",
