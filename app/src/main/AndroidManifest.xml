@@ -29,6 +29,10 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Exported only for Android's protected SMS_RECEIVED broadcast.
+            android.permission.BROADCAST_SMS restricts external spoofing to the platform.
+        -->
         <receiver
             android:name=".sms.TransactionSmsReceiver"
             android:enabled="true"
