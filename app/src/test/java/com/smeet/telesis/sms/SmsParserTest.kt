@@ -55,6 +55,17 @@ class SmsParserTest {
     }
 
     @Test
+    fun ignoresGenericTransactionWithoutClearDirection() {
+        val parsed = SmsParser.parse(
+            sender = "BANK",
+            body = "Transaction of INR 999.00 on account XX1111 was processed successfully. Ref 12345.",
+            smsDate = 1L
+        )
+
+        assertTrue(parsed is ParsedSms.Ignored)
+    }
+
+    @Test
     fun ignoresCreditCardPaymentReceived() {
         val parsed = SmsParser.parse(
             sender = "HDFCBK",
