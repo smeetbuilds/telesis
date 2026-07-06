@@ -1,6 +1,6 @@
 # Telesis
 
-> **A local-first Android expense tracker that turns transaction SMS into a clean personal finance dashboard.**
+> **A local-first Android expense tracker that turns clean transaction SMS into a private personal finance dashboard.**
 
 Telesis is an open-source Android app for personal expense tracking. It is built natively with **Kotlin**, **Jetpack Compose**, and **Room**, with a strict privacy-first direction: no account, no cloud sync, no ads, no analytics SDK, and no internet permission.
 
@@ -12,31 +12,32 @@ Telesis is an open-source Android app for personal expense tracking. It is built
 
 <p align="center">
   <a href="https://github.com/smeetbuilds/telesis/actions/workflows/android-apk.yml"><img src="https://github.com/smeetbuilds/telesis/actions/workflows/android-apk.yml/badge.svg" alt="Android APK build" /></a>
-  <a href="https://github.com/smeetbuilds/telesis/releases/tag/latest"><img src="https://img.shields.io/badge/APK-download%20latest-16a34a" alt="Download latest APK" /></a>
+  <a href="https://github.com/smeetbuilds/telesis/releases"><img src="https://img.shields.io/badge/APK-download%20from%20releases-16a34a" alt="Download APK from releases" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3ddc84" alt="Android" />
   <img src="https://img.shields.io/badge/privacy-local--only-111827" alt="Local only" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
 </p>
 
 ---
 
 ## Download APK
 
-The latest debug APK is published by GitHub Actions after a successful `main` build:
+Debug APKs are published as GitHub pre-releases after a successful quality-gated build from `main`.
 
-**Download:** https://github.com/smeetbuilds/telesis/releases/tag/latest
+**Download:** https://github.com/smeetbuilds/telesis/releases
 
 Release assets:
 
 - `telesis-debug.apk` — installable Android debug APK for sideload testing
 - `telesis-debug.apk.sha256` — checksum for verification
 
-> The `latest` release is a personal sideload/debug build. It is not a Play Store release and is not production-signed.
+> Debug APKs are personal sideload/testing builds. They are not Play Store releases and are not production-signed.
 
 ---
 
 ## Why Telesis exists
 
-Most expense trackers either need manual entry forever or send your financial data to a remote service. Telesis takes a different route: it reads transaction SMS locally, parses debit/credit messages on your phone, and stores the result in a private local database.
+Most expense trackers either need manual entry forever or send your financial data to a remote service. Telesis takes a different route: it reads transaction SMS locally, parses clear debit/credit messages on your phone, and stores the result in a private local database.
 
 The goal is simple: **personal finance tracking without surrendering personal finance data.**
 
@@ -47,24 +48,25 @@ The goal is simple: **personal finance tracking without surrendering personal fi
 ### Expense tracking
 
 - Add, edit, and delete expenses manually
-- Track income, expenses, and transfers
+- Track income and expenses
 - Set categories and budgets
 - View monthly totals, daily spend, top merchants, and payment-mode breakdowns
 
 ### SMS transaction import
 
-- Reads bank, card, wallet, UPI, and ATM transaction SMS locally
-- Detects debit, credit, transfer, and cash withdrawal messages
-- Extracts amount, merchant, account hint, and payment mode
-- Avoids common duplicate imports using transaction hashes
-- Review queue for uncertain SMS matches
+- Reads bank, card, wallet, UPI, and ATM SMS locally
+- Imports only clean debit expenses and clean credit income
+- Ignores failed transactions, OTPs, offers, reminders, statements, bill/recharge payments, credit-card settlements, and own-account transfers
+- Extracts amount, merchant, account hint, payment mode, and category
+- Avoids common duplicate imports using parser-versioned transaction hashes
+- Sends low-confidence expense/income candidates to a review queue before they affect insights
 
 ### Automation
 
 - Custom local parsing rules
 - Auto-categorization
-- Recurring expense generation
-- Subscription candidate detection
+- Manual recurring expense generation
+- Subscription candidate detection from reviewed expense patterns
 
 ### Privacy and backup
 
@@ -125,6 +127,7 @@ Requirements:
 - Android Studio
 - JDK 17
 - Android SDK 35
+- Gradle 8.11.1
 
 Commands:
 
@@ -139,6 +142,8 @@ Generated APK:
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+> The committed Gradle wrapper is not currently trusted for local builds. Use Gradle 8.11.1 directly until the wrapper is regenerated and committed from a local machine.
 
 ---
 
@@ -178,7 +183,7 @@ gradle :app:lintDebug --stacktrace
 gradle :app:assembleDebug --stacktrace
 ```
 
-After a successful `main` build, it publishes a refreshed `latest` GitHub Release containing the debug APK.
+The APK publishing workflow also runs tests and lint before creating a timestamped debug pre-release. It does **not** force-move a `latest` tag.
 
 ---
 
@@ -209,14 +214,20 @@ Known practical limitation: SMS parsing differs by bank, wallet, UPI app, card i
 
 Useful contributions include:
 
-- More SMS parser patterns
+- More SMS parser fixtures and bank-specific examples
 - Better category rules
 - UI polish
 - Accessibility improvements
 - Export/import testing
-- Bank-specific parsing fixtures
+- Repository and backup tests
 
 Please avoid adding internet/network SDKs unless the privacy model is explicitly discussed first.
+
+---
+
+## License
+
+Telesis is released under the MIT License. See [LICENSE](LICENSE).
 
 ---
 
