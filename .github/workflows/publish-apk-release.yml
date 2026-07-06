@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    name: Build and publish latest APK
+    name: Test, lint, build, and publish debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -33,7 +33,13 @@ jobs:
           unzip -q "$RUNNER_TEMP/gradle-8.11.1-bin.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-8.11.1/bin" >> "$GITHUB_PATH"
 
-      - name: Build debug APK only
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Run Android lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Prepare APK asset
@@ -54,20 +60,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create or update latest release
+      - name: Create timestamped debug pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release delete latest --yes || true
-          git push origin :refs/tags/latest || true
-          git tag -f latest "${GITHUB_SHA}"
-          git push -f origin latest
-          gh release create latest \
+          short_sha="${GITHUB_SHA::7}"
+          release_tag="debug-${GITHUB_RUN_NUMBER}-${short_sha}"
+          gh release create "$release_tag" \
             build/apk/telesis-debug.apk \
             build/apk/telesis-debug.apk.sha256 \
-            --title "Telesis Latest APK" \
-            --notes "Latest debug APK built from main commit ${GITHUB_SHA}." \
+            --title "Telesis Debug APK ${release_tag}" \
+            --notes "Debug APK built from main commit ${GITHUB_SHA} after tests and lint passed. This is a sideload testing build, not a production-signed release." \
             --target "${GITHUB_SHA}" \
             --prerelease
