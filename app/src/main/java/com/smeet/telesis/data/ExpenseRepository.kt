@@ -231,18 +231,42 @@ class ExpenseRepository(private val database: TelesisDatabase) {
         cachedCategoriesByName: MutableMap<String, CategoryEntity>? = null
     ): ImportOutcome {
         if (body.isBlank()) return ImportOutcome.Ignored
-        val hash = Security.sha256(sender.trim() + "|" + body.trim() + "|" + date)
-        if (dao.countSmsLog(hash) > 0 || dao.countBySmsHash(hash) > 0) {
-            dao.insertSmsLog(SmsLogEntity(sender = sender.take(80), bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.DUPLICATE, reason = "Duplicate SMS hash"))
+
+        val legacyHash = Security.sha256(sender.trim() + "|" + body.trim() + "|" + date)
+        val hash = Security.sha256(SmsParser.PARSER_VERSION + "|" + sender.trim() + "|" + body.trim() + "|" + date)
+        if (dao.getSmsLogByHash(hash) != null || dao.countBySmsHash(hash) > 0) {
             return ImportOutcome.Duplicate
         }
 
         return when (val parsed = SmsParser.parse(sender, body, date)) {
             is ParsedSms.Ignored -> {
+                if (dao.countBySmsHash(legacyHash) > 0) {
+                    dao.deleteSmsExpenseByHash(legacyHash)
+                }
                 dao.insertSmsLog(SmsLogEntity(sender = sender.take(80), bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.IGNORED, reason = parsed.reason.take(160)))
                 ImportOutcome.Ignored
             }
             is ParsedSms.Transaction -> {
+                if (!parsed.isSmsLedgerType()) {
+                    dao.insertSmsLog(
+                        SmsLogEntity(
+                            sender = sender.take(80),
+                            bodyHash = hash,
+                            smsDate = date,
+                            parsedStatus = SmsParsedStatus.IGNORED,
+                            rawAmountPaise = parsed.amountPaise,
+                            rawMerchant = parsed.merchant.take(80),
+                            confidence = parsed.confidence,
+                            reason = "Ignored non-ledger SMS transaction type: ${parsed.type}"
+                        )
+                    )
+                    return ImportOutcome.Ignored
+                }
+                if (dao.countBySmsHash(legacyHash) > 0) {
+                    dao.insertSmsLog(SmsLogEntity(sender = sender.take(80), bodyHash = hash, smsDate = date, parsedStatus = SmsParsedStatus.DUPLICATE, reason = "Already imported by legacy parser hash"))
+                    return ImportOutcome.Duplicate
+                }
+
                 val activeRules = cachedRules ?: dao.getEnabledRules()
                 val rule = activeRules.firstOrNull { rule ->
                     val sourceText = (parsed.merchant + " " + body).lowercase()
@@ -254,7 +278,7 @@ class ExpenseRepository(private val database: TelesisDatabase) {
                 } else ensureCategoryCached(parsed.suggestedCategory, cachedCategoriesByName, cachedCategoriesById)
 
                 val merchant = (rule?.merchantName?.takeIf { it.isNotBlank() } ?: parsed.merchant).take(52)
-                val requiresReview = parsed.confidence < 78 || parsed.type == TransactionType.TRANSFER
+                val requiresReview = parsed.confidence < 78
                 val row = ExpenseEntity(
                     amountPaise = parsed.amountPaise,
                     type = parsed.type,
@@ -576,6 +600,8 @@ class ExpenseRepository(private val database: TelesisDatabase) {
         .replace(Regex("\\s+"), " ")
         .trim()
         .take(max)
+
+    private fun ParsedSms.Transaction.isSmsLedgerType(): Boolean = type == TransactionType.EXPENSE || type == TransactionType.INCOME
 
     private inline fun <reified T : Enum<T>> enumValueOr(value: String, fallback: T): T =
         runCatching { enumValueOf<T>(value) }.getOrDefault(fallback)
