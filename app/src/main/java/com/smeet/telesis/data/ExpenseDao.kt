@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -40,6 +39,9 @@ interface ExpenseDao {
     @Query("DELETE FROM expenses WHERE id = :id")
     suspend fun deleteExpense(id: Long)
 
+    @Query("DELETE FROM expenses WHERE smsHash = :smsHash AND source = 'SMS'")
+    suspend fun deleteSmsExpenseByHash(smsHash: String): Int
+
     @Query("UPDATE expenses SET isReviewed = 1, updatedAt = :updatedAt WHERE id = :id")
     suspend fun markReviewed(id: Long, updatedAt: Long)
 
@@ -51,6 +53,9 @@ interface ExpenseDao {
 
     @Query("SELECT COUNT(*) FROM sms_logs WHERE bodyHash = :hash")
     suspend fun countSmsLog(hash: String): Int
+
+    @Query("SELECT * FROM sms_logs WHERE bodyHash = :hash LIMIT 1")
+    suspend fun getSmsLogByHash(hash: String): SmsLogEntity?
 
     @Query(
         """
