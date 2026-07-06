@@ -30,8 +30,9 @@
         </activity>
 
         <!--
-            Exported only for Android's protected SMS_RECEIVED broadcast.
-            android.permission.BROADCAST_SMS restricts external spoofing to the platform.
+            SMS_RECEIVED is a protected platform broadcast. This receiver is exported only so
+            Android can deliver that broadcast, and android.permission.BROADCAST_SMS prevents
+            normal third-party apps from spoofing it.
         -->
         <receiver
             android:name=".sms.TransactionSmsReceiver"
