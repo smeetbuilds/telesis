@@ -5,14 +5,15 @@ import com.smeet.telesis.data.TransactionType
 import com.smeet.telesis.util.Money
 
 object SmsParser {
+    const val PARSER_VERSION = "sms-parser-v3-expense-income-only"
+
     private val amountRegexes = listOf(
         Regex("(?:INR|Rs\\.?|₹)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE),
         Regex("([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s*(?:INR|Rs\\.?|₹)", RegexOption.IGNORE_CASE)
     )
 
     private val debitWords = listOf(
-        "debited", "debit", "spent", "purchase", "txn", "transaction", "withdrawn",
-        "deducted", "charged", "used at", "paid to"
+        "debited", "debit", "spent", "purchase", "withdrawn", "deducted", "charged", "used at", "paid to"
     )
     private val creditWords = listOf("credited", "credit", "received", "deposited", "salary", "refund", "cashback", "reversal")
     private val ownTransferWords = listOf(
@@ -76,7 +77,7 @@ object SmsParser {
         val type = when {
             creditWords.any { lower.contains(it) } && debitWords.none { lower.contains(it) } -> TransactionType.INCOME
             debitWords.any { lower.contains(it) } -> TransactionType.EXPENSE
-            else -> TransactionType.EXPENSE
+            else -> return ParsedSms.Ignored("Ignored SMS without clear debit or credit direction")
         }
 
         val paymentMode = detectPaymentMode(lower)
