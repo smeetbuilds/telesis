@@ -143,7 +143,7 @@ Generated APK:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> The committed Gradle wrapper is not currently trusted for local builds. Use Gradle 8.11.1 directly until the wrapper is regenerated and committed from a local machine.
+> No Gradle wrapper is currently committed. Use Gradle 8.11.1 directly until a valid wrapper is regenerated and committed from a local machine.
 
 ---
 
