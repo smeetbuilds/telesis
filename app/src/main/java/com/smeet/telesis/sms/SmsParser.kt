@@ -13,9 +13,9 @@ object SmsParser {
     )
 
     private val debitWords = listOf(
-        "debited", "debit", "spent", "purchase", "withdrawn", "deducted", "charged", "used at", "paid to"
+        "debited", "debit", "spent", "purchase", "purchased", "withdrawn", "deducted", "charged", "used at", "paid to"
     )
-    private val creditWords = listOf("credited", "credit", "received", "deposited", "salary", "refund", "cashback", "reversal")
+    private val creditWords = listOf("credited", "received", "deposited", "salary", "refund", "cashback", "reversal")
     private val ownTransferWords = listOf(
         "self transfer", "transferred to your", "sent to self", "own account", "between your accounts",
         "payment received for your credit card", "credited to your credit card", "credited in your credit card",
@@ -140,7 +140,7 @@ object SmsParser {
                 AmountCandidate(paise, score, match.range.first)
             }.toList()
         }.distinctBy { it.amountPaise to it.position }
-        return candidates.maxWithOrNull(compareBy<AmountCandidate> { it.score }.thenByDescending { -it.position })?.amountPaise
+        return candidates.maxWithOrNull(compareBy<AmountCandidate> { it.score }.thenBy { it.position })?.amountPaise
     }
 
     private fun detectPaymentMode(lower: String): PaymentMode = when {
